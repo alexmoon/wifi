@@ -150,30 +150,34 @@ class WpaCtrl extends events_1.EventEmitter {
                 break;
         }
     }
+    
     /**
      * send request to wpa_supplicant control interface
-     * @param msg wpa_supplicant commands
+     * @param  {string} msg wpa_supplicant commands
+     * @returns {Promise}
      */
     sendCmd(msg) {
-        this.pendingCmd = this.pendingCmd.then(() => {
-            return new Promise((resolve, reject) => {
-                if (this.client != null) {
-                    this.client.once('error', reject);
-                    this.once('response', (resp) => {
-                        if (this.client != null) {
-                            this.client.removeListener('error', reject);
-                        }
-                        this._parseResponse(resp, resolve, reject);
-                    });
-                    this.client.send(new Buffer(msg));
-                }
-                else {
-                    reject(new Error('Not connected.'));
-                }
-            });
+        this.pendingCmd = new Promise((resolve, reject) => {
+            // 如果发生错误,则response的once没有移除,这是很致命的逻辑错误
+            let cbOnResponse = (msg) => {
+                this.client.removeListener('error', cbOnError);
+                return this._parseResponse(msg, resolve, reject);
+            };
+
+            let cbOnError = (err) => {
+                this.client.removeListener('response', cbOnResponse);
+                return reject(err);
+            };
+
+            this.client.once('error', cbOnError);
+            // FIXME: 如果响应超时,没有相应的处理
+            this.once('response', cbOnResponse);
+            this.client.send(new Buffer(msg));
         });
+
         return this.pendingCmd;
     }
+    
     /**
      * parse response from wpa_supplicant control interface
      * @param msg wpa_supplicant response
